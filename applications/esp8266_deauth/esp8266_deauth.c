@@ -351,7 +351,7 @@ int32_t esp8266_deauth_app(void* p)
     furi_hal_gpio_write(app->m_GpioButtons.pinButtonUp, true);
     furi_hal_gpio_write(app->m_GpioButtons.pinButtonDown, true);
     furi_hal_gpio_write(app->m_GpioButtons.pinButtonOK, true);
-    furi_hal_gpio_write(app->m_GpioButtons.pinButtonBack, true);
+    furi_hal_gpio_write(app->m_GpioButtons.pinButtonBack, false); // GPIO15 - Boot fails if pulled HIGH
 
 #if ENABLE_MODULE_DETECTION    
     furi_hal_gpio_init(&gpio_ext_pc0, GpioModeInput, GpioPullUp, GpioSpeedLow); // Connect to the Flipper's ground just to be sure 
@@ -478,12 +478,12 @@ int32_t esp8266_deauth_app(void* p)
                                 if (event.m_input.type == InputTypePress)
                                 {
                                     DEAUTH_APP_LOG_I("Back Press");
-                                    furi_hal_gpio_write(app->m_GpioButtons.pinButtonUp, false);
+                                    furi_hal_gpio_write(app->m_GpioButtons.pinButtonBack, false);
                                 }
                                 else if (event.m_input.type == InputTypeRelease)
                                 {
                                     DEAUTH_APP_LOG_I("Back Release");
-                                    furi_hal_gpio_write(app->m_GpioButtons.pinButtonUp, true);
+                                    furi_hal_gpio_write(app->m_GpioButtons.pinButtonBack, true);
                                 }
                                 else if (event.m_input.type == InputTypeLong)
                                 {
