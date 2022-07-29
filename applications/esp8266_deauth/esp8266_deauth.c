@@ -33,12 +33,6 @@
 #define ENABLE_MODULE_POWER 1
 #define ENABLE_MODULE_DETECTION 0
 
-typedef enum EChunkArrayData
-{
-    EChunkArrayData_Context = 0,
-    EChunkArrayData_ENUM_MAX
-} EChunkArrayData;
-
 typedef enum EEventType // app internally defined event types
 {
     EventTypeKey // flipper input.h type
@@ -55,10 +49,7 @@ typedef enum EAppContext
     Undefined,
     WaitingForModule,
     Initializing,
-    ScanMode,
-    MonitorMode,
-    ScanAnimation,
-    MonitorAnimation
+    ModuleActive,
 } EAppContext;
 
 typedef enum EWorkerEventFlags
@@ -68,6 +59,13 @@ typedef enum EWorkerEventFlags
     WorkerEventRx = (1 << 2),
 } EWorkerEventFlags;
 
+typedef struct SGpioButtons
+{
+    GpioPin const* pinButtonUp;
+    GpioPin const* pinButtonDown;
+    GpioPin const* pinButtonOK;
+    GpioPin const* pinButtonBack;
+} SGpioButtons;
 
 typedef struct SWiFiDeauthApp 
 {
@@ -75,20 +73,21 @@ typedef struct SWiFiDeauthApp
     FuriThread* m_worker_thread;
     //NotificationApp* m_notification;
     StreamBufferHandle_t m_rx_stream;
+    SGpioButtons m_GpioButtons;
 
     bool m_wifiDeauthModuleInitialized;
     bool m_wifiDeauthModuleAttached;
 
     EAppContext m_context;
 
-    uint8_t m_backBuffer[128 * 8 * 8]; // 128 * 64 * 8
-    uint8_t m_renderBuffer[128 * 8 * 8];
+    uint8_t m_backBuffer[128 * 8 * 8];
+    //uint8_t m_renderBuffer[128 * 8 * 8];
 
     uint8_t* m_backBufferPtr;
-    uint8_t* m_m_renderBufferPtr;
+    //uint8_t* m_m_renderBufferPtr;
 
-    uint8_t* m_originalBuffer;
-    uint8_t** m_originalBufferLocation;
+    //uint8_t* m_originalBuffer;
+    //uint8_t** m_originalBufferLocation;
     size_t m_canvasSize;
 
     bool m_needUpdateGUI;
@@ -100,14 +99,19 @@ static void esp8266_deauth_app_init(SWiFiDeauthApp* const app)
     app->m_context = Undefined;
 
     app->m_canvasSize = 128 * 8 * 8;
-    memset(app->m_backBuffer, 0xFF, app->m_canvasSize);
-    memset(app->m_renderBuffer, 0xFF, app->m_canvasSize);
+    memset(app->m_backBuffer, DEAUTH_APP_DEBUG ? 0xFF : 0x00, app->m_canvasSize);
+    //memset(app->m_renderBuffer, DEAUTH_APP_DEBUG ? 0xFF : 0x00, app->m_canvasSize);
 
-    app->m_originalBuffer = NULL;
-    app->m_originalBufferLocation = NULL;
+    //app->m_originalBuffer = NULL;
+    //app->m_originalBufferLocation = NULL;
 
-    app->m_m_renderBufferPtr = app->m_renderBuffer;
+    //app->m_m_renderBufferPtr = app->m_renderBuffer;
     app->m_backBufferPtr = app->m_backBuffer;
+
+    app->m_GpioButtons.pinButtonUp      = &gpio_ext_pc3;
+    app->m_GpioButtons.pinButtonDown    = &gpio_ext_pb2;
+    app->m_GpioButtons.pinButtonOK      = &gpio_ext_pb3;
+    app->m_GpioButtons.pinButtonBack    = &gpio_ext_pa4;
 
     app->m_needUpdateGUI = false;
 
@@ -124,7 +128,7 @@ static void esp8266_deauth_app_init(SWiFiDeauthApp* const app)
 #endif
 }
 
-static void wifi_module_render_callback(Canvas* const canvas, void* ctx)
+static void esp8266_deauth_module_render_callback(Canvas* const canvas, void* ctx)
 {
     SWiFiDeauthApp* app = acquire_mutex((ValueMutex*)ctx, 25);
     if (app == NULL)
@@ -146,20 +150,65 @@ static void wifi_module_render_callback(Canvas* const canvas, void* ctx)
     //app->m_m_renderBufferPtr = app->m_backBufferPtr;
     //app->m_backBufferPtr = exchangeBuffers;
 
-    if(app->m_needUpdateGUI)
-    { 
-        //memcpy(app->m_renderBuffer, app->m_backBuffer, app->m_canvasSize);
-        app->m_needUpdateGUI = false;
-    }
+    //if(app->m_needUpdateGUI)
+    //{ 
+    //    //memcpy(app->m_renderBuffer, app->m_backBuffer, app->m_canvasSize);
+    //    app->m_needUpdateGUI = false;
+    //}
 
-    uint8_t* buffer = canvas_get_buffer(canvas);
-    app->m_canvasSize = canvas_get_buffer_size(canvas);
-    memcpy(buffer, app->m_backBuffer, app->m_canvasSize);
+    switch (app->m_context)
+    {
+        case Undefined:
+        {
+            canvas_clear(canvas);
+            canvas_set_font(canvas, FontPrimary);
+
+            const char* strInitializing = "Something wrong";
+            canvas_draw_str(canvas, (u8g2_GetDisplayWidth(&canvas->fb) / 2) - (canvas_string_width(canvas, strInitializing) / 2), (u8g2_GetDisplayHeight(&canvas->fb) / 2)/* - (u8g2_GetMaxCharHeight(&canvas->fb) / 2)*/, strInitializing);
+        }
+        break;
+        case WaitingForModule:
+#if ENABLE_MODULE_DETECTION
+            furi_assert(!app->m_wifiDeauthModuleAttached);
+            if (!app->m_wifiDeauthModuleAttached)
+            {
+                canvas_clear(canvas);
+                canvas_set_font(canvas, FontSecondary);
+
+                const char* strInitializing = "Attach WiFi scanner module";
+                canvas_draw_str(canvas, (u8g2_GetDisplayWidth(&canvas->fb) / 2) - (canvas_string_width(canvas, strInitializing) / 2), (u8g2_GetDisplayHeight(&canvas->fb) / 2)/* - (u8g2_GetMaxCharHeight(&canvas->fb) / 2)*/, strInitializing);
+            }
+#endif
+            break;
+        case Initializing:
+#if ENABLE_MODULE_POWER
+        {
+            furi_assert(!app->m_wifiDeauthModuleInitialized);
+            if (!app->m_wifiDeauthModuleInitialized)
+            {
+                canvas_set_font(canvas, FontPrimary);
+
+                const char* strInitializing = "Initializing...";
+                canvas_draw_str(canvas, (u8g2_GetDisplayWidth(&canvas->fb) / 2) - (canvas_string_width(canvas, strInitializing) / 2), (u8g2_GetDisplayHeight(&canvas->fb) / 2) - (u8g2_GetMaxCharHeight(&canvas->fb) / 2), strInitializing);
+            }
+        }
+#endif // ENABLE_MODULE_POWER
+        break;
+        case ModuleActive:
+        {
+            uint8_t* buffer = canvas_get_buffer(canvas);
+            app->m_canvasSize = canvas_get_buffer_size(canvas);
+            memcpy(buffer, app->m_backBuffer, app->m_canvasSize);
+        }
+            break;
+        default:
+            break;
+    }
 
     release_mutex((ValueMutex*)ctx, app);
 }
 
-static void wifi_module_input_callback(InputEvent* input_event, FuriMessageQueue* event_queue) {
+static void esp8266_deauth_module_input_callback(InputEvent* input_event, FuriMessageQueue* event_queue) {
     furi_assert(event_queue); 
 
     SPluginEvent event = {.m_type = EventTypeKey, .m_input = *input_event};
@@ -186,6 +235,24 @@ static void uart_on_irq_cb(UartIrqEvent ev, uint8_t data, void* context) {
 
 static int32_t uart_worker(void* context) {
     furi_assert(context);
+    DEAUTH_APP_LOG_I("[UART] Worker thread init");
+
+    SWiFiDeauthApp* app = acquire_mutex((ValueMutex*)context, 25);
+    if (app == NULL)
+    {
+        return 1;
+    }
+
+    StreamBufferHandle_t rx_stream = app->m_rx_stream;
+
+    release_mutex((ValueMutex*)context, app);
+
+#if ENABLE_MODULE_POWER
+    bool initialized = false;
+
+    string_t receivedString;
+    string_init(receivedString);
+#endif // ENABLE_MODULE_POWER
 
     while(true) 
     {
@@ -195,26 +262,64 @@ static int32_t uart_worker(void* context) {
         if(events & WorkerEventStop) break;
         if(events & WorkerEventRx) 
         {
-
+            DEAUTH_APP_LOG_I("[UART] Received data");
             SWiFiDeauthApp* app = acquire_mutex((ValueMutex*)context, 25);
             if (app == NULL)
             {
                 return 1;
             }
-            size_t length = 0;
+
+            size_t dataReceivedLength = 0;
             int index = 0;
             do 
             {
-                uint8_t data[64];
-                length = xStreamBufferReceive(app->m_rx_stream, data, 64, 25);
-                if(length > 0) 
+                const uint8_t dataBufferSize = 64;
+                uint8_t dataBuffer[dataBufferSize];
+                dataReceivedLength = xStreamBufferReceive(rx_stream, dataBuffer, dataBufferSize, 25);
+                if (dataReceivedLength > 0)
                 {
-                    memcpy(app->m_backBuffer + index, data, length);
-                    index += length;
+#if ENABLE_MODULE_POWER
+                    if (!initialized)
+                    {
+                        if(!(dataReceivedLength > strlen(MODULE_CONTEXT_INITIALIZATION)))
+                        {
+                            DEAUTH_APP_LOG_I("[UART] Found possible init candidate");
+                            for (uint16_t i = 0; i < dataReceivedLength; i++)
+                            {
+                                string_push_back(receivedString, dataBuffer[i]);
+                            }
+                        }
+                    }
+                    else
+#endif // ENABLE_MODULE_POWER
+                    {
+                        DEAUTH_APP_LOG_I("[UART] Data copied to backbuffer");
+                        memcpy(app->m_backBuffer + index, dataBuffer, dataReceivedLength);
+                        index += dataReceivedLength;
+                        app->m_needUpdateGUI = true;
+                    }
                 }
-            } while(length > 0);
 
-            app->m_needUpdateGUI = true;
+            } while(dataReceivedLength > 0);
+
+#if ENABLE_MODULE_POWER
+            if (!app->m_wifiDeauthModuleInitialized)
+            {
+                if (string_cmp_str(receivedString, MODULE_CONTEXT_INITIALIZATION) == 0)
+                {
+                    DEAUTH_APP_LOG_I("[UART] Initialized");
+                    initialized = true;
+                    app->m_wifiDeauthModuleInitialized = true;
+                    app->m_context = ModuleActive;
+                    string_clear(receivedString);
+                }
+                else
+                {
+                    DEAUTH_APP_LOG_I("[UART] Not an initialization command");
+                    string_reset(receivedString);
+                }
+            }
+#endif // ENABLE_MODULE_POWER
 
             release_mutex((ValueMutex*)context, app);
         }
@@ -238,15 +343,15 @@ int32_t esp8266_deauth_app(void* p)
 
     esp8266_deauth_app_init(app);
 
-    furi_hal_gpio_init_simple(&gpio_ext_pc3, GpioModeOutputPushPull);
-    furi_hal_gpio_init_simple(&gpio_ext_pb2, GpioModeOutputPushPull);
-    furi_hal_gpio_init_simple(&gpio_ext_pb3, GpioModeOutputPushPull);
-    furi_hal_gpio_init_simple(&gpio_ext_pa4, GpioModeOutputPushPull);
+    furi_hal_gpio_init_simple(app->m_GpioButtons.pinButtonUp, GpioModeOutputPushPull);
+    furi_hal_gpio_init_simple(app->m_GpioButtons.pinButtonDown, GpioModeOutputPushPull);
+    furi_hal_gpio_init_simple(app->m_GpioButtons.pinButtonOK, GpioModeOutputPushPull);
+    furi_hal_gpio_init_simple(app->m_GpioButtons.pinButtonBack, GpioModeOutputPushPull);
 
-    furi_hal_gpio_write(&gpio_ext_pc3, true);
-    furi_hal_gpio_write(&gpio_ext_pb2, true);
-    furi_hal_gpio_write(&gpio_ext_pb3, true);
-    furi_hal_gpio_write(&gpio_ext_pa4, true);
+    furi_hal_gpio_write(app->m_GpioButtons.pinButtonUp, true);
+    furi_hal_gpio_write(app->m_GpioButtons.pinButtonDown, true);
+    furi_hal_gpio_write(app->m_GpioButtons.pinButtonOK, true);
+    furi_hal_gpio_write(app->m_GpioButtons.pinButtonBack, true);
 
 #if ENABLE_MODULE_DETECTION    
     furi_hal_gpio_init(&gpio_ext_pc0, GpioModeInput, GpioPullUp, GpioSpeedLow); // Connect to the Flipper's ground just to be sure 
@@ -256,6 +361,8 @@ int32_t esp8266_deauth_app(void* p)
 #if ENABLE_MODULE_POWER
     app->m_context = Initializing;
     furi_hal_power_enable_otg();
+#else
+    app->m_context = ModuleActive;
 #endif
 #endif // ENABLE_MODULE_DETECTION
 
@@ -273,8 +380,8 @@ int32_t esp8266_deauth_app(void* p)
     //app->m_notification = furi_record_open("notification");
 
     ViewPort* view_port = view_port_alloc(); 
-    view_port_draw_callback_set(view_port, wifi_module_render_callback, &app_data_mutex);
-    view_port_input_callback_set(view_port, wifi_module_input_callback, event_queue);
+    view_port_draw_callback_set(view_port, esp8266_deauth_module_render_callback, &app_data_mutex);
+    view_port_input_callback_set(view_port, esp8266_deauth_module_input_callback, event_queue);
 
     // Open GUI and register view_port
     Gui* gui = furi_record_open("gui"); 
@@ -286,13 +393,13 @@ int32_t esp8266_deauth_app(void* p)
 #if DISABLE_CONSOLE    
     furi_hal_console_disable();
 #endif
-    furi_hal_uart_set_br(FuriHalUartIdUSART1, 230400); // 115200 921600
+    furi_hal_uart_set_br(FuriHalUartIdUSART1, FLIPPERZERO_SERIAL_BAUD);
     furi_hal_uart_set_irq_cb(FuriHalUartIdUSART1, uart_on_irq_cb, app);
     DEAUTH_APP_LOG_I("UART Listener created");
 
     app->m_worker_thread = furi_thread_alloc();
-    furi_thread_set_name(app->m_worker_thread, "WiFiModuleUARTWorker");
-    furi_thread_set_stack_size(app->m_worker_thread, 1024);
+    furi_thread_set_name(app->m_worker_thread, "WiFiDeauthModuleUARTWorker");
+    furi_thread_set_stack_size(app->m_worker_thread, 1 * 1024);
     furi_thread_set_context(app->m_worker_thread, &app_data_mutex);
     furi_thread_set_callback(app->m_worker_thread, uart_worker);
     furi_thread_start(app->m_worker_thread);
@@ -314,6 +421,8 @@ int32_t esp8266_deauth_app(void* p)
 #if ENABLE_MODULE_POWER
                 app->m_context = Initializing;
                 furi_hal_power_enable_otg();
+#else
+                app->m_context = ModuleActive;
 #endif
             }
         }
@@ -323,58 +432,58 @@ int32_t esp8266_deauth_app(void* p)
         {
             if(event.m_type == EventTypeKey) 
             {
-                //if (app->m_wifiModuleInitialized)
+                if (app->m_wifiDeauthModuleInitialized)
                 {
-                    //if (app->m_context == Initializing)
+                    if (app->m_context == ModuleActive)
                     {
                         switch (event.m_input.key)
                         {
                             case InputKeyUp:
                                 if (event.m_input.type == InputTypePress)
                                 {
-                                    DEAUTH_APP_LOG_I("Previous Press");
-                                    furi_hal_gpio_write(&gpio_ext_pb2, false);
+                                    DEAUTH_APP_LOG_I("Up Press");
+                                    furi_hal_gpio_write(app->m_GpioButtons.pinButtonUp, false);
                                 }
                                 else if (event.m_input.type == InputTypeRelease)
                                 {
-                                    DEAUTH_APP_LOG_I("Previous Release");
-                                    furi_hal_gpio_write(&gpio_ext_pb2, true);
+                                    DEAUTH_APP_LOG_I("Up Release");
+                                    furi_hal_gpio_write(app->m_GpioButtons.pinButtonUp, true);
                                 }
                                 break;
                             case InputKeyDown:
                                 if (event.m_input.type == InputTypePress)
                                 {
-                                    DEAUTH_APP_LOG_I("Next Press");
-                                    furi_hal_gpio_write(&gpio_ext_pc3, false);
+                                    DEAUTH_APP_LOG_I("Down Press");
+                                    furi_hal_gpio_write(app->m_GpioButtons.pinButtonDown, false);
                                 }
                                 else if (event.m_input.type == InputTypeRelease)
                                 {
-                                    DEAUTH_APP_LOG_I("Next Release");
-                                    furi_hal_gpio_write(&gpio_ext_pc3, true);
+                                    DEAUTH_APP_LOG_I("Down Release");
+                                    furi_hal_gpio_write(app->m_GpioButtons.pinButtonDown, true);
                                 }
                                 break;
                             case InputKeyOk:
                                 if (event.m_input.type == InputTypePress)
                                 {
                                     DEAUTH_APP_LOG_I("OK Press");
-                                    furi_hal_gpio_write(&gpio_ext_pb3, false);
+                                    furi_hal_gpio_write(app->m_GpioButtons.pinButtonOK, false);
                                 }
                                 else if (event.m_input.type == InputTypeRelease)
                                 {
                                     DEAUTH_APP_LOG_I("OK Release");
-                                    furi_hal_gpio_write(&gpio_ext_pb3, true);
+                                    furi_hal_gpio_write(app->m_GpioButtons.pinButtonOK, true);
                                 }
                                 break;
                             case InputKeyBack:
                                 if (event.m_input.type == InputTypePress)
                                 {
                                     DEAUTH_APP_LOG_I("Back Press");
-                                    furi_hal_gpio_write(&gpio_ext_pa4, false);
+                                    furi_hal_gpio_write(app->m_GpioButtons.pinButtonUp, false);
                                 }
                                 else if (event.m_input.type == InputTypeRelease)
                                 {
                                     DEAUTH_APP_LOG_I("Back Release");
-                                    furi_hal_gpio_write(&gpio_ext_pa4, true);
+                                    furi_hal_gpio_write(app->m_GpioButtons.pinButtonUp, true);
                                 }
                                 else if (event.m_input.type == InputTypeLong)
                                 {
@@ -387,16 +496,16 @@ int32_t esp8266_deauth_app(void* p)
                         }
                     }
                 }
-                //else
-                //{
-                //    if(event.m_input.key == InputKeyBack)
-                //    {
-                //        if(event.m_input.type == InputTypeShort || event.m_input.type == InputTypeLong) //event.input.type == InputTypePress)
-                //        {
-                //            processing = false;
-                //        }
-                //    }
-                //}
+                else
+                {
+                    if(event.m_input.key == InputKeyBack)
+                    {
+                        if(event.m_input.type == InputTypeShort || event.m_input.type == InputTypeLong)
+                        {
+                            processing = false;
+                        }
+                    }
+                }
             } 
         } 
         else 
@@ -414,14 +523,8 @@ int32_t esp8266_deauth_app(void* p)
         }
 #endif
 
-        //if(app->m_needUpdateGUI)
-        //{
-            view_port_update(view_port);
-        //    app->m_needUpdateGUI = false;
-        //}
+        view_port_update(view_port);
         release_mutex(&app_data_mutex, app);
-
-        //view_port_update(view_port);
     }
 
     DEAUTH_APP_LOG_I("Start exit app");
