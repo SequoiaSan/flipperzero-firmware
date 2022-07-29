@@ -39,3 +39,14 @@ App(
         "bt_hid",
     ],
 )
+
+
+App(
+    appid="my_apps",
+    name="My applications for main menu",
+    apptype=FlipperAppType.METAPACKAGE,
+    provides=[
+        "wifi_scanner",
+        "esp8266_deauth",
+    ],
+)
