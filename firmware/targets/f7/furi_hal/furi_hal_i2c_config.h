@@ -6,6 +6,9 @@
 extern "C" {
 #endif
 
+/** Exteral i2c bus address in case of slave mode */
+extern uint32_t furi_hal_i2c_ownaddress1_external;
+
 /** Internal(power) i2c bus, I2C1, under reset when not used */
 extern FuriHalI2cBus furi_hal_i2c_bus_power;
 

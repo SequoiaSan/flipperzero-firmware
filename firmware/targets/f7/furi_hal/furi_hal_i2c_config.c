@@ -16,6 +16,8 @@
   */
 #define FURI_HAL_I2C_CONFIG_POWER_I2C_TIMINGS_400 0x00602173
 
+uint32_t furi_hal_i2c_ownaddress1_external = 0x00;
+
 FuriMutex* furi_hal_i2c_bus_power_mutex = NULL;
 
 static void furi_hal_i2c_bus_power_event(FuriHalI2cBus* bus, FuriHalI2cBusEvent event) {
@@ -152,11 +154,12 @@ void furi_hal_i2c_bus_handle_external_event(
         furi_hal_gpio_init_ex(
             &gpio_ext_pc1, GpioModeAltFunctionOpenDrain, GpioPullNo, GpioSpeedLow, GpioAltFn4I2C3);
 
+        printf("Handle activated with address %lu\n", furi_hal_i2c_ownaddress1_external);
         LL_I2C_InitTypeDef I2C_InitStruct = {0};
         I2C_InitStruct.PeripheralMode = LL_I2C_MODE_I2C;
         I2C_InitStruct.AnalogFilter = LL_I2C_ANALOGFILTER_ENABLE;
         I2C_InitStruct.DigitalFilter = 0;
-        I2C_InitStruct.OwnAddress1 = 0;
+        I2C_InitStruct.OwnAddress1 = furi_hal_i2c_ownaddress1_external;
         I2C_InitStruct.TypeAcknowledge = LL_I2C_ACK;
         I2C_InitStruct.OwnAddrSize = LL_I2C_OWNADDRESS1_7BIT;
         I2C_InitStruct.Timing = FURI_HAL_I2C_CONFIG_POWER_I2C_TIMINGS_100;

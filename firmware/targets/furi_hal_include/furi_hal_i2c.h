@@ -68,6 +68,12 @@ bool furi_hal_i2c_rx(
     const uint8_t size,
     uint32_t timeout);
 
+bool furi_hal_slave_i2c_rx(
+    FuriHalI2cBusHandle* handle,
+    uint8_t* data,
+    uint8_t size,
+    uint32_t timeout);
+
 /** Perform I2C tx and rx transfers
  *
  * @param      handle   pointer to FuriHalI2cBusHandle instance
