@@ -171,6 +171,7 @@ void furi_hal_i2c_bus_handle_external_event(
         LL_I2C_DisableGeneralCall(handle->bus->i2c);
         LL_I2C_EnableClockStretching(handle->bus->i2c);
     } else if(event == FuriHalI2cBusHandleEventDeactivate) {
+        furi_hal_i2c_ownaddress1_external = 0x00;
         LL_I2C_Disable(handle->bus->i2c);
         furi_hal_gpio_write(&gpio_ext_pc0, 1);
         furi_hal_gpio_write(&gpio_ext_pc1, 1);

@@ -152,29 +152,6 @@ bool furi_hal_i2c_rx(
     return ret;
 }
 
-void Error_Callback()
-{
-    uint8_t i = 0;
-    uint8_t data = 0;
-    printf("Error_Callback:");
-    /* Clear NACKF Flag */
-    LL_I2C_ClearFlag_NACK(I2C1);
-    /* Clear STOP Flag */
-    LL_I2C_ClearFlag_STOP(I2C1);
-    /* Clear Configuration Register 2, */
-    I2C1->CR2 &= (uint32_t)~((uint32_t)(I2C_CR2_SADD | I2C_CR2_HEAD10R | I2C_CR2_NBYTES | I2C_CR2_RELOAD | I2C_CR2_RD_WRN));
-    	for(i=0;i<200;i++)
-    	{
-    		data = LL_I2C_ReceiveData8(I2C1);
-    		printf("%x\t",data);
-    		if(data == 0x00)
-    		{
-    			break;
-    		}
-    	}
-    printf("\r\n");
-}
-
 bool furi_hal_slave_i2c_rx(
     FuriHalI2cBusHandle* handle,
     uint8_t* data,
@@ -187,46 +164,17 @@ bool furi_hal_slave_i2c_rx(
     bool ret = true;
     uint32_t timeout_tick = furi_get_tick() + timeout;
 
-    bool changeState = false;
-
-    // LL_I2C_GenerateStartCondition(handle->bus->i2c);
-    //LL_I2C_GenerateStopCondition(handle->bus->i2c);
-
     do {
         while (LL_I2C_IsActiveFlag_BUSY(handle->bus->i2c)) {
             if (furi_get_tick() >= timeout_tick) {
-                if(!changeState)
-                {
-                    printf("busy\n");
-                    changeState = true;
-                }
                 ret = false;
                 break;
             }
         }
 
-        changeState = false;
-
         if (!ret) {
-            if (!changeState)
-            {
-                printf("return (busy)\n");
-                changeState = true;
-            }
             break;
         }
-
-        changeState = true;
-        //LL_I2C_HandleTransfer(
-        //    handle->bus->i2c,
-        //    address,
-        //    LL_I2C_ADDRSLAVE_7BIT,
-        //    size,
-        //    LL_I2C_MODE_AUTOEND,
-        //    LL_I2C_GENERATE_START_READ);
-
-        int ubReceiveIndex = 0;
-        int ubSendIndex = 0;
 
         while (!LL_I2C_IsActiveFlag_STOP(handle->bus->i2c) || size > 0) {
             if (LL_I2C_IsActiveFlag_ADDR(handle->bus->i2c))
@@ -241,7 +189,7 @@ bool furi_hal_slave_i2c_rx(
                         /* Clear ADDR flag value in ISR register */
                         LL_I2C_ClearFlag_ADDR(handle->bus->i2c);
                         /* Enable Receive Interrupt */
-                        LL_I2C_EnableIT_RX(handle->bus->i2c);
+                        //LL_I2C_EnableIT_RX(handle->bus->i2c);
                     }
                     else
                     {
@@ -249,7 +197,7 @@ bool furi_hal_slave_i2c_rx(
                         /* Clear ADDR flag value in ISR register */
                         LL_I2C_ClearFlag_ADDR(handle->bus->i2c);
                         LL_I2C_ClearFlag_TXE(handle->bus->i2c);
-                        LL_I2C_EnableIT_TX(handle->bus->i2c);
+                        //LL_I2C_EnableIT_TX(handle->bus->i2c);
                     }
                 }
                 else
@@ -259,71 +207,29 @@ bool furi_hal_slave_i2c_rx(
                     LL_I2C_ClearFlag_ADDR(handle->bus->i2c);
 
                     /* Call Error function */
-                    Error_Callback();
+                    printf("Error_Callback:");
+                    /* Clear NACKF Flag */
+                    LL_I2C_ClearFlag_NACK(handle->bus->i2c);
+                    /* Clear STOP Flag */
+                    LL_I2C_ClearFlag_STOP(handle->bus->i2c);
                 }
             }
             /* Check RXNE flag value in ISR register */
             else if (LL_I2C_IsActiveFlag_TXIS(handle->bus->i2c))
             {
-                LL_I2C_TransmitData8(handle->bus->i2c, data[ubSendIndex++]);
                 printf("%x\t%x\r\n", data[0], data[1]);
+                LL_I2C_TransmitData8(handle->bus->i2c, (*data));
+                data++;
+                size--;
             }
             else if (LL_I2C_IsActiveFlag_RXNE(handle->bus->i2c))
             {
                 /* Call function Slave Reception Callback */
-                //Slave_Reception_Callback();
-                ///
-                //uint8_t recvData = LL_I2C_ReceiveData8(handle->bus->i2c);
-                //printf("ubReceiveIndex:%x,LL_I2C_ReceiveData8:%x\r\n", ubReceiveIndex, recvData);
-                /* Read character in Receive Data register. RXNE flag is cleared by reading data in RXDR register */
-                //data[ubReceiveIndex++] = recvData;
-                ///
                 printf("LL_I2C_IsActiveFlag_RXNE\n");
                 *data = LL_I2C_ReceiveData8(handle->bus->i2c);
                 data++;
                 size--;
             }
-            /* Check STOP flag value in ISR register */
-            else if (LL_I2C_IsActiveFlag_STOP(handle->bus->i2c))
-            {
-                printf("STOP\n");
-                /* End of Transfer */
-                LL_I2C_ClearFlag_STOP(handle->bus->i2c);
-
-                /* Call function Slave Complete Callback */
-                //Slave_Complete_Callback();
-                ///
-                uint16_t i = 0;
-                printf("I2C Slave Recv Data\r\n");
-                for (i = 0; i < ubReceiveIndex; i++)
-                {
-                    printf("%x\t", data[i]);
-                }
-                printf("\r\n");
-                ///
-
-                ubReceiveIndex = 0;
-                ubSendIndex = 0;
-
-                ret = true;
-                break;
-            }
-            //else
-            //{
-            //    //printf("ERROR\n");
-            //    /* Call Error function */
-            //    //Error_Callback();
-            //}
-
-            //if (!changeState)
-            //{
-            //    printf("while !STOP");
-            //    changeState = true;
-            //}
-
-            //if (LL_I2C_IsActiveFlag_RXNE(handle->bus->i2c)) {
-
-            //}
 
             if (furi_get_tick() >= timeout_tick) {
                 printf("furi_get_tick() >= timeout_tick\n");
@@ -332,7 +238,7 @@ bool furi_hal_slave_i2c_rx(
             }
         }
 
-        //LL_I2C_ClearFlag_STOP(handle->bus->i2c);
+        LL_I2C_ClearFlag_STOP(handle->bus->i2c);
     } while (0);
 
     printf("exit\n");
