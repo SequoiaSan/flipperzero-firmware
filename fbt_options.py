@@ -82,6 +82,7 @@ FIRMWARE_APPS = {
     ],
     "unit_tests": [
         "basic_services",
+        "updater_app",
         "unit_tests",
     ],
 }
